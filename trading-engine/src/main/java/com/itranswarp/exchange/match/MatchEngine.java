@@ -31,18 +31,20 @@ public class MatchEngine {
      * @param anotherBook 未能完全成交后挂单的OrderBook
      * @return 成交结果
      */
-    private MatchResult processOrder(long sequenceId, OrderEntity takerOrder, OrderBook makerBook,
-            OrderBook anotherBook) {
+    private MatchResult processOrder(long sequenceId, OrderEntity takerOrder,
+                                     OrderBook makerBook, OrderBook anotherBook) {
         this.sequenceId = sequenceId;
         long ts = takerOrder.createdAt;
         MatchResult matchResult = new MatchResult(takerOrder);
         BigDecimal takerUnfilledQuantity = takerOrder.quantity;
         for (;;) {
             OrderEntity makerOrder = makerBook.getFirst();
+            // 对手盘不存在:
             if (makerOrder == null) {
-                // 对手盘不存在:
                 break;
             }
+
+            // 价格不匹配
             if (takerOrder.direction == Direction.BUY && takerOrder.price.compareTo(makerOrder.price) < 0) {
                 // 买入订单价格比卖盘第一档价格低:
                 break;
@@ -50,14 +52,15 @@ public class MatchEngine {
                 // 卖出订单价格比买盘第一档价格高:
                 break;
             }
+
             // 以Maker价格成交:
             this.marketPrice = makerOrder.price;
             // 待成交数量为两者较小值:
             BigDecimal matchedQuantity = takerUnfilledQuantity.min(makerOrder.unfilledQuantity);
             // 成交记录:
             matchResult.add(makerOrder.price, matchedQuantity, makerOrder);
-            // 更新成交后的订单数量:
-            takerUnfilledQuantity = takerUnfilledQuantity.subtract(matchedQuantity);
+
+            // 更新对手盘订单:
             BigDecimal makerUnfilledQuantity = makerOrder.unfilledQuantity.subtract(matchedQuantity);
             // 对手盘完全成交后，从订单簿中删除:
             if (makerUnfilledQuantity.signum() == 0) {
@@ -67,12 +70,15 @@ public class MatchEngine {
                 // 对手盘部分成交:
                 makerOrder.updateOrder(makerUnfilledQuantity, OrderStatus.PARTIAL_FILLED, ts);
             }
-            // Taker订单完全成交后，退出循环:
+
+            // 更新Taker订单，若已完全成交，则退出循环:
+            takerUnfilledQuantity = takerUnfilledQuantity.subtract(matchedQuantity);
             if (takerUnfilledQuantity.signum() == 0) {
                 takerOrder.updateOrder(takerUnfilledQuantity, OrderStatus.FULLY_FILLED, ts);
                 break;
             }
         }
+
         // Taker订单未完全成交时，放入订单簿:
         if (takerUnfilledQuantity.signum() > 0) {
             takerOrder.updateOrder(takerUnfilledQuantity,

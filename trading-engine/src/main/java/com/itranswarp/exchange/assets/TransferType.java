@@ -1,6 +1,6 @@
 package com.itranswarp.exchange.assets;
 
-public enum Transfer {
+public enum TransferType {
 
     AVAILABLE_TO_AVAILABLE,
 

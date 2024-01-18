@@ -6,7 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.itranswarp.exchange.assets.AssetService;
-import com.itranswarp.exchange.assets.Transfer;
+import com.itranswarp.exchange.assets.TransferType;
 import com.itranswarp.exchange.enums.AssetEnum;
 import com.itranswarp.exchange.match.MatchDetailRecord;
 import com.itranswarp.exchange.match.MatchResult;
@@ -47,18 +47,18 @@ public class ClearingService extends LoggerSupport {
                     assetService.unfreeze(taker.userId, AssetEnum.USD, unfreezeQuote);
                 }
                 // 买方USD转入卖方账户:
-                assetService.transfer(Transfer.FROZEN_TO_AVAILABLE, taker.userId, maker.userId, AssetEnum.USD,
+                assetService.transfer(TransferType.FROZEN_TO_AVAILABLE, taker.userId, maker.userId, AssetEnum.USD,
                         maker.price.multiply(matched));
                 // 卖方BTC转入买方账户:
-                assetService.transfer(Transfer.FROZEN_TO_AVAILABLE, maker.userId, taker.userId, AssetEnum.BTC, matched);
+                assetService.transfer(TransferType.FROZEN_TO_AVAILABLE, maker.userId, taker.userId, AssetEnum.BTC, matched);
                 // 删除完全成交的Maker:
                 if (maker.unfilledQuantity.signum() == 0) {
-                    orderService.removeOrder(maker.id);
+                    orderService.removeOrderFromCache(maker.id);
                 }
             }
             // 删除完全成交的Taker:
             if (taker.unfilledQuantity.signum() == 0) {
-                orderService.removeOrder(taker.id);
+                orderService.removeOrderFromCache(taker.id);
             }
         }
         case SELL -> {
@@ -72,18 +72,18 @@ public class ClearingService extends LoggerSupport {
                 OrderEntity maker = detail.makerOrder();
                 BigDecimal matched = detail.quantity();
                 // 卖方BTC转入买方账户:
-                assetService.transfer(Transfer.FROZEN_TO_AVAILABLE, taker.userId, maker.userId, AssetEnum.BTC, matched);
+                assetService.transfer(TransferType.FROZEN_TO_AVAILABLE, taker.userId, maker.userId, AssetEnum.BTC, matched);
                 // 买方USD转入卖方账户:
-                assetService.transfer(Transfer.FROZEN_TO_AVAILABLE, maker.userId, taker.userId, AssetEnum.USD,
+                assetService.transfer(TransferType.FROZEN_TO_AVAILABLE, maker.userId, taker.userId, AssetEnum.USD,
                         maker.price.multiply(matched));
                 // 删除完全成交的Maker:
                 if (maker.unfilledQuantity.signum() == 0) {
-                    orderService.removeOrder(maker.id);
+                    orderService.removeOrderFromCache(maker.id);
                 }
             }
             // 删除完全成交的Taker:
             if (taker.unfilledQuantity.signum() == 0) {
-                orderService.removeOrder(taker.id);
+                orderService.removeOrderFromCache(taker.id);
             }
         }
         default -> throw new IllegalArgumentException("Invalid direction.");
@@ -103,6 +103,6 @@ public class ClearingService extends LoggerSupport {
         default -> throw new IllegalArgumentException("Invalid direction.");
         }
         // 从OrderService中删除订单:
-        orderService.removeOrder(order.id);
+        orderService.removeOrderFromCache(order.id);
     }
 }

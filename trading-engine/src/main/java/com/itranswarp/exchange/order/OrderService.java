@@ -1,5 +1,12 @@
 package com.itranswarp.exchange.order;
 
+import com.itranswarp.exchange.assets.AssetService;
+import com.itranswarp.exchange.enums.AssetEnum;
+import com.itranswarp.exchange.enums.Direction;
+import com.itranswarp.exchange.model.trade.OrderEntity;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -7,14 +14,11 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-
-import com.itranswarp.exchange.assets.AssetService;
-import com.itranswarp.exchange.enums.AssetEnum;
-import com.itranswarp.exchange.enums.Direction;
-import com.itranswarp.exchange.model.trade.OrderEntity;
-
+/**
+ * 订单系统
+ * 1. 创建订单，需先冻结资产
+ * 2. 活动订单的缓存增删
+ */
 @Component
 public class OrderService {
 
@@ -26,7 +30,6 @@ public class OrderService {
 
     // 跟踪所有活动订单:
     final ConcurrentMap<Long, OrderEntity> activeOrders = new ConcurrentHashMap<>();
-
     // 跟踪用户活动订单:
     final ConcurrentMap<Long, ConcurrentMap<Long, OrderEntity>> userOrders = new ConcurrentHashMap<>();
 
@@ -34,22 +37,23 @@ public class OrderService {
      * 创建订单，失败返回null:
      */
     public OrderEntity createOrder(long sequenceId, long ts, Long orderId, Long userId, Direction direction,
-            BigDecimal price, BigDecimal quantity) {
+                                   BigDecimal price, BigDecimal quantity) {
         switch (direction) {
-        case BUY -> {
-            // 买入，需冻结USD：
-            if (!assetService.tryFreeze(userId, AssetEnum.USD, price.multiply(quantity))) {
-                return null;
+            case BUY -> {
+                // 买入，需冻结USD：
+                if (!assetService.tryFreeze(userId, AssetEnum.USD, price.multiply(quantity))) {
+                    return null;
+                }
             }
-        }
-        case SELL -> {
-            // 卖出，需冻结BTC：
-            if (!assetService.tryFreeze(userId, AssetEnum.BTC, quantity)) {
-                return null;
+            case SELL -> {
+                // 卖出，需冻结BTC：
+                if (!assetService.tryFreeze(userId, AssetEnum.BTC, quantity)) {
+                    return null;
+                }
             }
+            default -> throw new IllegalArgumentException("Invalid direction.");
         }
-        default -> throw new IllegalArgumentException("Invalid direction.");
-        }
+
         OrderEntity order = new OrderEntity();
         order.id = orderId;
         order.sequenceId = sequenceId;
@@ -59,15 +63,8 @@ public class OrderService {
         order.quantity = quantity;
         order.unfilledQuantity = quantity;
         order.createdAt = order.updatedAt = ts;
-        // 添加到ActiveOrders:
-        this.activeOrders.put(order.id, order);
-        // 添加到UserOrders:
-        ConcurrentMap<Long, OrderEntity> uOrders = this.userOrders.get(userId);
-        if (uOrders == null) {
-            uOrders = new ConcurrentHashMap<>();
-            this.userOrders.put(userId, uOrders);
-        }
-        uOrders.put(order.id, order);
+
+        this.cacheOrder(userId, order);
         return order;
     }
 
@@ -83,8 +80,21 @@ public class OrderService {
         return this.userOrders.get(userId);
     }
 
+    // 加入到活跃订单列表
+    public void cacheOrder(Long userId, OrderEntity order) {
+        // 添加到ActiveOrders:
+        this.activeOrders.put(order.id, order);
+        // 添加到UserOrders:
+        ConcurrentMap<Long, OrderEntity> uOrders = this.userOrders.get(userId);
+        if (uOrders == null) {
+            uOrders = new ConcurrentHashMap<>();
+            this.userOrders.put(userId, uOrders);
+        }
+        uOrders.put(order.id, order);
+    }
+
     // 删除活动订单:
-    public void removeOrder(Long orderId) {
+    public void removeOrderFromCache(Long orderId) {
         // 从ActiveOrders中删除:
         OrderEntity removed = this.activeOrders.remove(orderId);
         if (removed == null) {

@@ -17,6 +17,19 @@ import com.itranswarp.exchange.model.support.EntitySupport;
 
 /**
  * Order entity.
+ * @Entity 注解和 @Table注解都是Java Persistence API中定义的一种注解。
+ * @Entity 说明这个class是实体类，并且使用默认的orm规则，即class名就是数据库表中表明，class字段名即表中字段名。
+ * @Entity 注解指明这是一个实体Bean。
+ *
+ * @Table 注解是一个非必须的注解。@Table 注解指定了 Entity 所要映射带数据库表，
+ * 其中 @Table.name() 用来指定映射表的表名。声明此对象映射到数据库的数据表，
+ * 通过它可以为实体指定表(table),目录 (Catalog) 和 schema 的名字
+ *
+ * 使用@Entity(name=***)时：
+ * 之后的Repository中的@Query(***)中，只能写sql语句(当然也不用写nativeQuery=true了！)
+ *
+ * 使用@Entity+@Table(name=***)时：
+ * 之后的Repository中的@Query(***)中，可以写hql与sql(而且写sql时候必须加上nativeQuery=true)
  */
 @Entity
 @Table(name = "orders")

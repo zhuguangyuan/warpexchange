@@ -21,7 +21,7 @@ import org.springframework.stereotype.Component;
 
 import com.itranswarp.exchange.assets.AssetService;
 import com.itranswarp.exchange.assets.Asset;
-import com.itranswarp.exchange.assets.Transfer;
+import com.itranswarp.exchange.assets.TransferType;
 import com.itranswarp.exchange.bean.OrderBookBean;
 import com.itranswarp.exchange.clearing.ClearingService;
 import com.itranswarp.exchange.enums.AssetEnum;
@@ -367,7 +367,7 @@ public class TradingEngineService extends LoggerSupport {
     }
 
     boolean transfer(TransferEvent event) {
-        boolean ok = this.assetService.tryTransfer(Transfer.AVAILABLE_TO_AVAILABLE, event.fromUserId, event.toUserId,
+        boolean ok = this.assetService.tryTransfer(TransferType.AVAILABLE_TO_AVAILABLE, event.fromUserId, event.toUserId,
                 event.asset, event.amount, event.sufficient);
         return ok;
     }
