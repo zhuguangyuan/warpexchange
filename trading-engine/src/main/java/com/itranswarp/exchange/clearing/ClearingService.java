@@ -51,7 +51,7 @@ public class ClearingService extends LoggerSupport {
                         maker.price.multiply(matched));
                 // 卖方BTC转入买方账户:
                 assetService.transfer(TransferType.FROZEN_TO_AVAILABLE, maker.userId, taker.userId, AssetEnum.BTC, matched);
-                // 删除完全成交的Maker:
+                // 删除完全成交的Maker: 注意这里，是从内存中删除订单，表示已经结算完毕
                 if (maker.unfilledQuantity.signum() == 0) {
                     orderService.removeOrderFromCache(maker.id);
                 }

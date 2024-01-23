@@ -15,7 +15,8 @@ import java.util.TreeMap;
 /**
  * 订单薄
  * 1. 买卖方向
- * 2. maker盘，list不好，O(n)的复杂度，用TreeMap O(logN) 或者 ConcurrentSkipList, 但是这个没按key排序 所以也不好
+ * 2. maker盘，list不好，O(n)的复杂度，用TreeMap O(logN) 或者 ConcurrentSkipList
+ * TreeMap ConcurrentSkipList都可以按key 排序，且后者的实现更加简单
  */
 public class OrderBook {
 

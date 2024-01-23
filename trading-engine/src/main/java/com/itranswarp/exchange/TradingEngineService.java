@@ -54,6 +54,12 @@ import com.itranswarp.exchange.support.LoggerSupport;
 import com.itranswarp.exchange.util.IpUtil;
 import com.itranswarp.exchange.util.JsonUtil;
 
+/**
+ * 交易系统服务
+ * 1. consumer 接受上游来的event/下单、撤单、转账
+ * 2. 完成撮合、清算；
+ * 3. 将成交明细落库，将成交信息notify；推送tick信息；推送orderBook
+ */
 @Component
 public class TradingEngineService extends LoggerSupport {
 
@@ -99,18 +105,24 @@ public class TradingEngineService extends LoggerSupport {
 
     private String shaUpdateOrderBookLua;
 
+    // 有撮合后orderBook会有变化，开一个线程来不断将最新的orderBook 推送到redis
+    private Thread orderBookThread;
+    // 处理暂存在队列中的订单明细，持久化到数据库
+    private Thread dbThread;
+    // 三个通知线程
+    private Thread apiResultThread;
     private Thread tickThread;
     private Thread notifyThread;
-    private Thread apiResultThread;
-    private Thread orderBookThread;
-    private Thread dbThread;
+
 
     private OrderBookBean latestOrderBook = null;
-    private Queue<List<OrderEntity>> orderQueue = new ConcurrentLinkedQueue<>();
-    private Queue<List<MatchDetailEntity>> matchQueue = new ConcurrentLinkedQueue<>();
-    private Queue<TickMessage> tickQueue = new ConcurrentLinkedQueue<>();
-    private Queue<ApiResultMessage> apiResultQueue = new ConcurrentLinkedQueue<>();
-    private Queue<NotificationMessage> notificationQueue = new ConcurrentLinkedQueue<>();
+    // 订单队列和撮合明细队列，用于将成交明细落库过程异步化
+    private final Queue<List<OrderEntity>> closedOrderQueue = new ConcurrentLinkedQueue<>();
+    private final Queue<List<MatchDetailEntity>> matchDetailQueue = new ConcurrentLinkedQueue<>();
+    // 几个通知队列，用于将通知过程异步化
+    private final Queue<ApiResultMessage> apiResultQueue = new ConcurrentLinkedQueue<>();
+    private final Queue<TickMessage> tickQueue = new ConcurrentLinkedQueue<>();
+    private final Queue<NotificationMessage> matchResultNotificationQueue = new ConcurrentLinkedQueue<>();
 
     @PostConstruct
     public void init() {
@@ -122,10 +134,11 @@ public class TradingEngineService extends LoggerSupport {
         this.tickThread.start();
         this.notifyThread = new Thread(this::runNotifyThread, "async-notify");
         this.notifyThread.start();
-        this.orderBookThread = new Thread(this::runOrderBookThread, "async-orderbook");
-        this.orderBookThread.start();
         this.apiResultThread = new Thread(this::runApiResultThread, "async-api-result");
         this.apiResultThread.start();
+        // orderBook 推送线程、订单明细持久化线程
+        this.orderBookThread = new Thread(this::runOrderBookThread, "async-orderbook");
+        this.orderBookThread.start();
         this.dbThread = new Thread(this::runDbThread, "async-db");
         this.dbThread.start();
     }
@@ -172,7 +185,7 @@ public class TradingEngineService extends LoggerSupport {
     private void runNotifyThread() {
         logger.info("start publish notify to redis...");
         for (;;) {
-            NotificationMessage msg = this.notificationQueue.poll();
+            NotificationMessage msg = this.matchResultNotificationQueue.poll();
             if (msg != null) {
                 redisService.publish(RedisCache.Topic.NOTIFICATION, JsonUtil.writeJson(msg));
             } else {
@@ -248,10 +261,10 @@ public class TradingEngineService extends LoggerSupport {
 
     // called by dbExecutor thread only:
     private void saveToDb() throws InterruptedException {
-        if (!matchQueue.isEmpty()) {
+        if (!matchDetailQueue.isEmpty()) {
             List<MatchDetailEntity> batch = new ArrayList<>(1000);
             for (;;) {
-                List<MatchDetailEntity> matches = matchQueue.poll();
+                List<MatchDetailEntity> matches = matchDetailQueue.poll();
                 if (matches != null) {
                     batch.addAll(matches);
                     if (batch.size() >= 1000) {
@@ -267,10 +280,10 @@ public class TradingEngineService extends LoggerSupport {
             }
             this.storeService.insertIgnore(batch);
         }
-        if (!orderQueue.isEmpty()) {
+        if (!closedOrderQueue.isEmpty()) {
             List<OrderEntity> batch = new ArrayList<>(1000);
             for (;;) {
-                List<OrderEntity> orders = orderQueue.poll();
+                List<OrderEntity> orders = closedOrderQueue.poll();
                 if (orders != null) {
                     batch.addAll(orders);
                     if (batch.size() >= 1000) {
@@ -286,7 +299,7 @@ public class TradingEngineService extends LoggerSupport {
             }
             this.storeService.insertIgnore(batch);
         }
-        if (matchQueue.isEmpty()) {
+        if (matchDetailQueue.isEmpty()) {
             Thread.sleep(1);
         }
     }
@@ -306,6 +319,12 @@ public class TradingEngineService extends LoggerSupport {
         if (this.fatalError) {
             return;
         }
+        /**
+         * lastSequenceId标记上一个处理的消息
+         * 新来的消息如果小于这个id 则是重复消息，丢弃
+         * 新来的消息的preId 如果大于这个id 表明有消息丢失 拿到了更新的消息 所以要从lastSequenceId 开始拉取消息
+         * 新来的消息的preId 如果不等于 lastSequenceId 说明有大错误 退出 // TODO 这一步 真有必要吗？
+         */
         if (event.sequenceId <= this.lastSequenceId) {
             logger.warn("skip duplicate event: {}", event);
             return;
@@ -376,6 +395,7 @@ public class TradingEngineService extends LoggerSupport {
         ZonedDateTime zdt = Instant.ofEpochMilli(event.createdAt).atZone(zoneId);
         int year = zdt.getYear();
         int month = zdt.getMonth().getValue();
+
         long orderId = event.sequenceId * 10000 + (year * 100 + month);
         OrderEntity order = this.orderService.createOrder(event.sequenceId, event.createdAt, orderId, event.userId,
                 event.direction, event.price, event.quantity);
@@ -385,56 +405,73 @@ public class TradingEngineService extends LoggerSupport {
             this.apiResultQueue.add(ApiResultMessage.createOrderFailed(event.refId, event.createdAt));
             return;
         }
+
         MatchResult result = this.matchEngine.processOrder(event.sequenceId, order);
         this.clearingService.clearMatchResult(result);
+
         // 推送成功结果,注意必须复制一份OrderEntity,因为将异步序列化:
         this.apiResultQueue.add(ApiResultMessage.orderSuccess(event.refId, order.copy(), event.createdAt));
         this.orderBookChanged = true;
         // 收集Notification:
         List<NotificationMessage> notifications = new ArrayList<>();
         notifications.add(createNotification(event.createdAt, "order_matched", order.userId, order.copy()));
+
         // 收集已完成的OrderEntity并生成MatchDetailEntity, TickEntity:
         if (!result.matchDetails.isEmpty()) {
-            List<OrderEntity> closedOrders = new ArrayList<>();
-            List<MatchDetailEntity> matchDetails = new ArrayList<>();
-            List<TickEntity> ticks = new ArrayList<>();
-            if (result.takerOrder.status.isFinalStatus) {
-                closedOrders.add(result.takerOrder);
-            }
-            for (MatchDetailRecord detail : result.matchDetails) {
-                OrderEntity maker = detail.makerOrder();
-                notifications.add(createNotification(event.createdAt, "order_matched", maker.userId, maker.copy()));
-                if (maker.status.isFinalStatus) {
-                    closedOrders.add(maker);
-                }
-                MatchDetailEntity takerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
-                        true);
-                MatchDetailEntity makerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
-                        false);
-                matchDetails.add(takerDetail);
-                matchDetails.add(makerDetail);
-                TickEntity tick = new TickEntity();
-                tick.sequenceId = event.sequenceId;
-                tick.takerOrderId = detail.takerOrder().id;
-                tick.makerOrderId = detail.makerOrder().id;
-                tick.price = detail.price();
-                tick.quantity = detail.quantity();
-                tick.takerDirection = detail.takerOrder().direction == Direction.BUY;
-                tick.createdAt = event.createdAt;
-                ticks.add(tick);
-            }
-            // 异步写入数据库:
-            this.orderQueue.add(closedOrders);
-            this.matchQueue.add(matchDetails);
-            // 异步发送Tick消息:
-            TickMessage msg = new TickMessage();
-            msg.sequenceId = event.sequenceId;
-            msg.createdAt = event.createdAt;
-            msg.ticks = ticks;
-            this.tickQueue.add(msg);
-            // 异步通知OrderMatch:
-            this.notificationQueue.addAll(notifications);
+            handleOneMatchDetail(event, result, notifications);
         }
+    }
+
+    /*
+     * 成交订单持久化
+     * 成交明细持久化
+     * 成交tick收集做msg推送
+     * 成交订单作Notification推送
+     * @param event
+     * @param result
+     * @param notifications
+     */
+    private void handleOneMatchDetail(OrderRequestEvent event, MatchResult result, List<NotificationMessage> notifications) {
+        List<OrderEntity> closedOrders = new ArrayList<>();
+        if (result.takerOrder.status.isFinalStatus) {
+            closedOrders.add(result.takerOrder);
+        }
+
+        List<MatchDetailEntity> matchDetails = new ArrayList<>();
+        List<TickEntity> ticks = new ArrayList<>();
+        for (MatchDetailRecord detail : result.matchDetails) {
+            OrderEntity maker = detail.makerOrder();
+            notifications.add(createNotification(event.createdAt, "order_matched", maker.userId, maker.copy()));
+            if (maker.status.isFinalStatus) {
+                closedOrders.add(maker);
+            }
+            MatchDetailEntity takerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
+                    true);
+            MatchDetailEntity makerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
+                    false);
+            matchDetails.add(takerDetail);
+            matchDetails.add(makerDetail);
+            TickEntity tick = new TickEntity();
+            tick.sequenceId = event.sequenceId;
+            tick.takerOrderId = detail.takerOrder().id;
+            tick.makerOrderId = detail.makerOrder().id;
+            tick.price = detail.price();
+            tick.quantity = detail.quantity();
+            tick.takerDirection = detail.takerOrder().direction == Direction.BUY;
+            tick.createdAt = event.createdAt;
+            ticks.add(tick);
+        }
+        // 异步写入数据库:
+        this.closedOrderQueue.add(closedOrders);
+        this.matchDetailQueue.add(matchDetails);
+        // 异步发送Tick消息:
+        TickMessage msg = new TickMessage();
+        msg.sequenceId = event.sequenceId;
+        msg.createdAt = event.createdAt;
+        msg.ticks = ticks;
+        this.tickQueue.add(msg);
+        // 异步通知OrderMatch:
+        this.matchResultNotificationQueue.addAll(notifications);
     }
 
     private NotificationMessage createNotification(long ts, String type, Long userId, Object data) {
@@ -475,7 +512,7 @@ public class TradingEngineService extends LoggerSupport {
         this.orderBookChanged = true;
         // 发送成功消息:
         this.apiResultQueue.add(ApiResultMessage.orderSuccess(event.refId, order, event.createdAt));
-        this.notificationQueue.add(createNotification(event.createdAt, "order_canceled", order.userId, order));
+        this.matchResultNotificationQueue.add(createNotification(event.createdAt, "order_canceled", order.userId, order));
     }
 
     public void debug() {

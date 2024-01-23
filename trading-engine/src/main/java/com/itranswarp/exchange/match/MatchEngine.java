@@ -17,6 +17,12 @@ public class MatchEngine {
     public BigDecimal marketPrice = BigDecimal.ZERO; // 最新市场价
     private long sequenceId;
 
+    /**
+     * todo 为什么单独提供sequenceId 而不是作为order中的一个属性呢
+     * @param sequenceId
+     * @param order
+     * @return
+     */
     public MatchResult processOrder(long sequenceId, OrderEntity order) {
         return switch (order.direction) {
         case BUY -> processOrder(sequenceId, order, this.sellBook, this.buyBook);
@@ -34,6 +40,7 @@ public class MatchEngine {
     private MatchResult processOrder(long sequenceId, OrderEntity takerOrder,
                                      OrderBook makerBook, OrderBook anotherBook) {
         this.sequenceId = sequenceId;
+
         long ts = takerOrder.createdAt;
         MatchResult matchResult = new MatchResult(takerOrder);
         BigDecimal takerUnfilledQuantity = takerOrder.quantity;

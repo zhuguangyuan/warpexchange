@@ -23,6 +23,12 @@ import com.itranswarp.exchange.support.LoggerSupport;
 
 /**
  * Sequence events.
+ * 消费来自kafka的消息
+ * 定序后存储到db 然后往下游发送
+ *
+ * 注意，任何时刻只能有一个定序实例在工作，如果要保证高可用，可以采用锁竞争的方式
+ * 获取到锁的就是工作实例，否则就是备份实例
+ * 这个方法在解决matrix engine 单实例问题也可以应用
  */
 @Component
 public class SequenceService extends LoggerSupport implements CommonErrorHandler {
@@ -121,6 +127,7 @@ public class SequenceService extends LoggerSupport implements CommonErrorHandler
         long start = System.currentTimeMillis();
         List<AbstractEvent> sequenced = null;
         try {
+            // 对上游来的消息，进行去重检测、生成对应的entity存储db, 然后拿到定序后的msgs
             sequenced = this.sequenceHandler.sequenceMessages(this.messageTypes, this.sequence, messages);
         } catch (Throwable e) {
             logger.error("exception when do sequence", e);

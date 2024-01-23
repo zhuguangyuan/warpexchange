@@ -6,6 +6,10 @@ import java.util.List;
 
 import com.itranswarp.exchange.model.trade.OrderEntity;
 
+/**
+ * 撮合结果
+ * 一个takerOrder 可以匹配多个makerOrder, 每一个匹配是一个 MatchDetailRecord
+ */
 public class MatchResult {
 
     public final OrderEntity takerOrder;
