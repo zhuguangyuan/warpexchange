@@ -33,6 +33,9 @@ import com.itranswarp.exchange.support.LoggerSupport;
 import com.itranswarp.exchange.util.IpUtil;
 import com.itranswarp.exchange.util.JsonUtil;
 
+/**
+ * 订阅来自engine成交推送到MQ的ticks
+ */
 @Component
 public class QuotationService extends LoggerSupport {
 

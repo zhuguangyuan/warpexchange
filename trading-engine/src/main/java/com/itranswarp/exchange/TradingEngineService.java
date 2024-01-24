@@ -56,9 +56,9 @@ import com.itranswarp.exchange.util.JsonUtil;
 
 /**
  * 交易系统服务
- * 1. consumer 接受上游来的event/下单、撤单、转账
+ * 1. consumer 接受MQ上游来的event/下单、撤单、转账
  * 2. 完成撮合、清算；
- * 3. 将成交明细落库，将成交信息notify；推送tick信息；推送orderBook
+ * 3. orderBook更新推送至Redis，将成交明细落库，将成交信息Redis-Notify；推送tick信息到MQ
  */
 @Component
 public class TradingEngineService extends LoggerSupport {

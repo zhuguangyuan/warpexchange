@@ -41,6 +41,7 @@ def main():
                 order for order in active_orders if order.direction == 'BUY']
             sell_orders = [
                 order for order in active_orders if order.direction == 'SELL']
+
             if len(buy_orders) > 10:
                 buy_orders.sort(key=lambda order: order.price)
                 client.post(f'/api/orders/{buy_orders[0].id}/cancel')

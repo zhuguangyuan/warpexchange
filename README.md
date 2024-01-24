@@ -8,12 +8,26 @@ A simple, super fast, 7x24 exchange.
 - 100% in-memory trading.
 
 ### Screenshot
-
-![Screenshot](https://github.com/michaelliao/warpexchange/blob/master/screenshot.png?raw=true)
-
+![dd](./screenshot.png)
+![dd](./structure.png)
+![dd](./engine.png)
+ 
 ### Tutorial
 
 [从零开始搭建一个7x24小时运行的证券交易所](https://www.liaoxuefeng.com/wiki/1252599548343744/1266263401691296)
+
+### 交易系统逻辑概要
+- 撮合和清结算系统
+  - 接收订单，去对端orderBook吃单，吃不完则放在己方的orderBook
+    - 吃单会导致orderBook变化
+    - 吃单会导致订单状态变化。订单成交后要清结算
+    - 吃单形成tick，是k线的来源
+      - 一组tick形成一个时间范围内的bar[open,close,high,low,quantity]
+- API和定序系统
+  - 对前端发送过来的下单撤单信息进行定序，保证数据持久完成且有序
+- 行情和推送系统
+  - tick形成bar
+  - 基于Netty的推送系统
 
 ### 定序系统
 - 对于上游发来的消息，做去重、落库、生成sequenceId + previousId 处理，然后发给下游
