@@ -127,6 +127,10 @@ public class PushVerticle extends AbstractVerticle {
         }
     }
 
+    /**
+     * 将消息推送给客户端
+     * @param text
+     */
     public void broadcast(String text) {
         NotificationMessage message = null;
         try {
@@ -135,6 +139,7 @@ public class PushVerticle extends AbstractVerticle {
             logger.error("invalid message format: {}", text);
             return;
         }
+        // 没有指定客户，则所有的都推荐。否则只推荐给特定客户
         if (message.userId == null) {
             if (logger.isInfoEnabled()) {
                 logger.info("try broadcast message to all: {}", text);

@@ -12,6 +12,7 @@ import java.util.Map.Entry;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
+
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
@@ -139,6 +140,7 @@ public class TradingEngineService extends LoggerSupport {
         // orderBook 推送线程、订单明细持久化线程
         this.orderBookThread = new Thread(this::runOrderBookThread, "async-orderbook");
         this.orderBookThread.start();
+
         this.dbThread = new Thread(this::runDbThread, "async-db");
         this.dbThread.start();
     }
@@ -152,9 +154,9 @@ public class TradingEngineService extends LoggerSupport {
 
     private void runTickThread() {
         logger.info("start tick thread...");
-        for (;;) {
+        for (; ; ) {
             List<TickMessage> msgs = new ArrayList<>();
-            for (;;) {
+            for (; ; ) {
                 TickMessage msg = tickQueue.poll();
                 if (msg != null) {
                     msgs.add(msg);
@@ -184,7 +186,7 @@ public class TradingEngineService extends LoggerSupport {
 
     private void runNotifyThread() {
         logger.info("start publish notify to redis...");
-        for (;;) {
+        for (; ; ) {
             NotificationMessage msg = this.matchResultNotificationQueue.poll();
             if (msg != null) {
                 redisService.publish(RedisCache.Topic.NOTIFICATION, JsonUtil.writeJson(msg));
@@ -202,7 +204,7 @@ public class TradingEngineService extends LoggerSupport {
 
     private void runApiResultThread() {
         logger.info("start publish api result to redis...");
-        for (;;) {
+        for (; ; ) {
             ApiResultMessage result = this.apiResultQueue.poll();
             if (result != null) {
                 redisService.publish(RedisCache.Topic.TRADING_API_RESULT, JsonUtil.writeJson(result));
@@ -221,7 +223,7 @@ public class TradingEngineService extends LoggerSupport {
     private void runOrderBookThread() {
         logger.info("start update orderbook snapshot to redis...");
         long lastSequenceId = 0;
-        for (;;) {
+        for (; ; ) {
             // 获取OrderBookBean的引用，确保后续操作针对局部变量而非成员变量:
             final OrderBookBean orderBook = this.latestOrderBook;
             // 仅在OrderBookBean更新后刷新Redis:
@@ -231,9 +233,9 @@ public class TradingEngineService extends LoggerSupport {
                 }
                 redisService.executeScriptReturnBoolean(this.shaUpdateOrderBookLua,
                         // keys: [cache-key]
-                        new String[] { RedisCache.Key.ORDER_BOOK },
+                        new String[]{RedisCache.Key.ORDER_BOOK},
                         // args: [sequenceId, json-data]
-                        new String[] { String.valueOf(orderBook.sequenceId), JsonUtil.writeJson(orderBook) });
+                        new String[]{String.valueOf(orderBook.sequenceId), JsonUtil.writeJson(orderBook)});
                 lastSequenceId = orderBook.sequenceId;
             } else {
                 // 无更新时，暂停1ms:
@@ -249,7 +251,7 @@ public class TradingEngineService extends LoggerSupport {
 
     private void runDbThread() {
         logger.info("start batch insert to db...");
-        for (;;) {
+        for (; ; ) {
             try {
                 saveToDb();
             } catch (InterruptedException e) {
@@ -263,7 +265,7 @@ public class TradingEngineService extends LoggerSupport {
     private void saveToDb() throws InterruptedException {
         if (!matchDetailQueue.isEmpty()) {
             List<MatchDetailEntity> batch = new ArrayList<>(1000);
-            for (;;) {
+            for (; ; ) {
                 List<MatchDetailEntity> matches = matchDetailQueue.poll();
                 if (matches != null) {
                     batch.addAll(matches);
@@ -282,7 +284,7 @@ public class TradingEngineService extends LoggerSupport {
         }
         if (!closedOrderQueue.isEmpty()) {
             List<OrderEntity> batch = new ArrayList<>(1000);
-            for (;;) {
+            for (; ; ) {
                 List<OrderEntity> orders = closedOrderQueue.poll();
                 if (orders != null) {
                     batch.addAll(orders);
@@ -406,72 +408,82 @@ public class TradingEngineService extends LoggerSupport {
             return;
         }
 
+        // 撮合、清算
+        // todo 下单直接走，如果没有成交，也走清结算，这一步可以优化
+        // todo 且走完清结算之后，才给前端返回结果，而不是订单创建成功就返回，这个可能拖累程序
         MatchResult result = this.matchEngine.processOrder(event.sequenceId, order);
         this.clearingService.clearMatchResult(result);
 
+        // 通知orderBook更新线程，获取新的orderBook，存到Redis
+        this.orderBookChanged = true;
+
         // 推送成功结果,注意必须复制一份OrderEntity,因为将异步序列化:
         this.apiResultQueue.add(ApiResultMessage.orderSuccess(event.refId, order.copy(), event.createdAt));
-        this.orderBookChanged = true;
-        // 收集Notification:
+
+        // 已经成交的订单入队，异步持久化:
+        List<OrderEntity> closedOrders = new ArrayList<>();
+        if (result.takerOrder.status.isFinalStatus) {
+            closedOrders.add(result.takerOrder);
+        }
+        // 成交信息入队，并做MQ推送
         List<NotificationMessage> notifications = new ArrayList<>();
         notifications.add(createNotification(event.createdAt, "order_matched", order.userId, order.copy()));
 
         // 收集已完成的OrderEntity并生成MatchDetailEntity, TickEntity:
         if (!result.matchDetails.isEmpty()) {
-            handleOneMatchDetail(event, result, notifications);
-        }
-    }
-
-    /*
-     * 成交订单持久化
-     * 成交明细持久化
-     * 成交tick收集做msg推送
-     * 成交订单作Notification推送
-     * @param event
-     * @param result
-     * @param notifications
-     */
-    private void handleOneMatchDetail(OrderRequestEvent event, MatchResult result, List<NotificationMessage> notifications) {
-        List<OrderEntity> closedOrders = new ArrayList<>();
-        if (result.takerOrder.status.isFinalStatus) {
-            closedOrders.add(result.takerOrder);
-        }
-
-        List<MatchDetailEntity> matchDetails = new ArrayList<>();
-        List<TickEntity> ticks = new ArrayList<>();
-        for (MatchDetailRecord detail : result.matchDetails) {
-            OrderEntity maker = detail.makerOrder();
-            notifications.add(createNotification(event.createdAt, "order_matched", maker.userId, maker.copy()));
-            if (maker.status.isFinalStatus) {
-                closedOrders.add(maker);
+            for (MatchDetailRecord detail : result.matchDetails) {
+                this.handleOrders(event, detail, notifications, closedOrders);
+                this.handleFilledDetails(event, detail);
+                this.handleTicks(event, detail);
             }
-            MatchDetailEntity takerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
-                    true);
-            MatchDetailEntity makerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
-                    false);
-            matchDetails.add(takerDetail);
-            matchDetails.add(makerDetail);
-            TickEntity tick = new TickEntity();
-            tick.sequenceId = event.sequenceId;
-            tick.takerOrderId = detail.takerOrder().id;
-            tick.makerOrderId = detail.makerOrder().id;
-            tick.price = detail.price();
-            tick.quantity = detail.quantity();
-            tick.takerDirection = detail.takerOrder().direction == Direction.BUY;
-            tick.createdAt = event.createdAt;
-            ticks.add(tick);
         }
+
         // 异步写入数据库:
         this.closedOrderQueue.add(closedOrders);
-        this.matchDetailQueue.add(matchDetails);
+        // 异步通知OrderMatch:
+        this.matchResultNotificationQueue.addAll(notifications);
+    }
+
+    private void handleTicks(OrderRequestEvent event, MatchDetailRecord detail) {
+        // 成交ticks
+        List<TickEntity> ticks = new ArrayList<>();
+        TickEntity tick = new TickEntity();
+        tick.sequenceId = event.sequenceId;
+        tick.takerOrderId = detail.takerOrder().id;
+        tick.makerOrderId = detail.makerOrder().id;
+        tick.price = detail.price();
+        tick.quantity = detail.quantity();
+        tick.takerDirection = detail.takerOrder().direction == Direction.BUY;
+        tick.createdAt = event.createdAt;
+        ticks.add(tick);
+
         // 异步发送Tick消息:
         TickMessage msg = new TickMessage();
         msg.sequenceId = event.sequenceId;
         msg.createdAt = event.createdAt;
         msg.ticks = ticks;
         this.tickQueue.add(msg);
-        // 异步通知OrderMatch:
-        this.matchResultNotificationQueue.addAll(notifications);
+    }
+
+    private void handleFilledDetails(OrderRequestEvent event, MatchDetailRecord detail) {
+        // 成交明细
+        List<MatchDetailEntity> matchDetails = new ArrayList<>();
+        MatchDetailEntity takerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
+                true);
+        MatchDetailEntity makerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
+                false);
+        matchDetails.add(takerDetail);
+        matchDetails.add(makerDetail);
+        this.matchDetailQueue.add(matchDetails);
+    }
+
+    private void handleOrders(OrderRequestEvent event, MatchDetailRecord detail, List<NotificationMessage> notifications, List<OrderEntity> closedOrders) {
+        // 订单成交
+        OrderEntity maker = detail.makerOrder();
+        notifications.add(createNotification(event.createdAt, "order_matched", maker.userId, maker.copy()));
+        if (maker.status.isFinalStatus) {
+            closedOrders.add(maker);
+        }
     }
 
     private NotificationMessage createNotification(long ts, String type, Long userId, Object data) {
@@ -484,7 +496,7 @@ public class TradingEngineService extends LoggerSupport {
     }
 
     MatchDetailEntity generateMatchDetailEntity(long sequenceId, long timestamp, MatchDetailRecord detail,
-            boolean forTaker) {
+                                                boolean forTaker) {
         MatchDetailEntity d = new MatchDetailEntity();
         d.sequenceId = sequenceId;
         d.orderId = forTaker ? detail.takerOrder().id : detail.makerOrder().id;
@@ -552,13 +564,13 @@ public class TradingEngineService extends LoggerSupport {
                     require(asset.getFrozen().signum() >= 0, "Trader has negative frozen: " + asset);
                 }
                 switch (assetId) {
-                case USD -> {
-                    totalUSD = totalUSD.add(asset.getTotal());
-                }
-                case BTC -> {
-                    totalBTC = totalBTC.add(asset.getTotal());
-                }
-                default -> require(false, "Unexpected asset id: " + assetId);
+                    case USD -> {
+                        totalUSD = totalUSD.add(asset.getTotal());
+                    }
+                    case BTC -> {
+                        totalBTC = totalBTC.add(asset.getTotal());
+                    }
+                    default -> require(false, "Unexpected asset id: " + assetId);
                 }
             }
         }
@@ -574,27 +586,27 @@ public class TradingEngineService extends LoggerSupport {
             OrderEntity order = entry.getValue();
             require(order.unfilledQuantity.signum() > 0, "Active order must have positive unfilled amount: " + order);
             switch (order.direction) {
-            case BUY -> {
-                // 订单必须在MatchEngine中:
-                require(this.matchEngine.buyBook.exist(order), "order not found in buy book: " + order);
-                // 累计冻结的USD:
-                userOrderFrozen.putIfAbsent(order.userId, new HashMap<>());
-                Map<AssetEnum, BigDecimal> frozenAssets = userOrderFrozen.get(order.userId);
-                frozenAssets.putIfAbsent(AssetEnum.USD, BigDecimal.ZERO);
-                BigDecimal frozen = frozenAssets.get(AssetEnum.USD);
-                frozenAssets.put(AssetEnum.USD, frozen.add(order.price.multiply(order.unfilledQuantity)));
-            }
-            case SELL -> {
-                // 订单必须在MatchEngine中:
-                require(this.matchEngine.sellBook.exist(order), "order not found in sell book: " + order);
-                // 累计冻结的BTC:
-                userOrderFrozen.putIfAbsent(order.userId, new HashMap<>());
-                Map<AssetEnum, BigDecimal> frozenAssets = userOrderFrozen.get(order.userId);
-                frozenAssets.putIfAbsent(AssetEnum.BTC, BigDecimal.ZERO);
-                BigDecimal frozen = frozenAssets.get(AssetEnum.BTC);
-                frozenAssets.put(AssetEnum.BTC, frozen.add(order.unfilledQuantity));
-            }
-            default -> require(false, "Unexpected order direction: " + order.direction);
+                case BUY -> {
+                    // 订单必须在MatchEngine中:
+                    require(this.matchEngine.buyBook.exist(order), "order not found in buy book: " + order);
+                    // 累计冻结的USD:
+                    userOrderFrozen.putIfAbsent(order.userId, new HashMap<>());
+                    Map<AssetEnum, BigDecimal> frozenAssets = userOrderFrozen.get(order.userId);
+                    frozenAssets.putIfAbsent(AssetEnum.USD, BigDecimal.ZERO);
+                    BigDecimal frozen = frozenAssets.get(AssetEnum.USD);
+                    frozenAssets.put(AssetEnum.USD, frozen.add(order.price.multiply(order.unfilledQuantity)));
+                }
+                case SELL -> {
+                    // 订单必须在MatchEngine中:
+                    require(this.matchEngine.sellBook.exist(order), "order not found in sell book: " + order);
+                    // 累计冻结的BTC:
+                    userOrderFrozen.putIfAbsent(order.userId, new HashMap<>());
+                    Map<AssetEnum, BigDecimal> frozenAssets = userOrderFrozen.get(order.userId);
+                    frozenAssets.putIfAbsent(AssetEnum.BTC, BigDecimal.ZERO);
+                    BigDecimal frozen = frozenAssets.get(AssetEnum.BTC);
+                    frozenAssets.put(AssetEnum.BTC, frozen.add(order.unfilledQuantity));
+                }
+                default -> require(false, "Unexpected order direction: " + order.direction);
             }
         }
         // 订单冻结的累计金额必须和Asset冻结一致:

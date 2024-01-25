@@ -16,6 +16,10 @@ import io.vertx.redis.client.Response;
 import io.vertx.redis.client.ResponseType;
 import io.vertx.redis.client.impl.types.BulkType;
 
+/**
+ * 连接redis并监听notification
+ * 启动一个vert 然后将收到的redis的消息，推送给连接中的ws
+ */
 @Component
 public class PushService extends LoggerSupport {
 
@@ -53,34 +57,37 @@ public class PushService extends LoggerSupport {
         logger.info("create redis client: {}", url);
         Redis redis = Redis.createClient(vertx, url);
 
-        redis.connect().onSuccess(conn -> {
-            logger.info("connect to redis ok.");
-            conn.handler(response -> {
-                if (response.type() == ResponseType.PUSH) {
-                    int size = response.size();
-                    if (size == 3) {
-                        Response type = response.get(2);
-                        if (type instanceof BulkType) {
-                            String msg = type.toString();
-                            if (logger.isDebugEnabled()) {
-                                logger.debug("receive push message: {}", msg);
+        redis.connect()
+                .onSuccess(conn -> {
+                    logger.info("connect to redis ok.");
+                    conn.handler(response -> {
+                        if (response.type() == ResponseType.PUSH) {
+                            int size = response.size();
+                            if (size == 3) {
+                                Response type = response.get(2);
+                                if (type instanceof BulkType) {
+                                    String msg = type.toString();
+                                    if (logger.isDebugEnabled()) {
+                                        logger.debug("receive push message: {}", msg);
+                                    }
+                                    push.broadcast(msg);
+                                }
                             }
-                            push.broadcast(msg);
                         }
-                    }
-                }
-            });
-            logger.info("try subscribe...");
-            conn.send(Request.cmd(Command.SUBSCRIBE).arg(RedisCache.Topic.NOTIFICATION)).onSuccess(resp -> {
-                logger.info("subscribe ok.");
-            }).onFailure(err -> {
-                logger.error("subscribe failed.", err);
-                System.exit(1);
-            });
-        }).onFailure(err -> {
-            logger.error("connect to redis failed.", err);
-            System.exit(1);
-        });
+                    });
+                    logger.info("try subscribe...");
+                    conn.send(Request.cmd(Command.SUBSCRIBE).arg(RedisCache.Topic.NOTIFICATION))
+                            .onSuccess(resp -> {
+                                logger.info("subscribe ok.");
+                            })
+                            .onFailure(err -> {
+                                logger.error("subscribe failed.", err);
+                                System.exit(1);
+                            });
+                }).onFailure(err -> {
+                    logger.error("connect to redis failed.", err);
+                    System.exit(1);
+                });
     }
 
     void exit(int exitCode) {

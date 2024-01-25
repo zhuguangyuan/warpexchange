@@ -69,8 +69,7 @@ public class TradingApiController extends AbstractApiController {
 
     private String getTimeoutJson() throws IOException {
         if (timeoutJson == null) {
-            timeoutJson = this.objectMapper
-                    .writeValueAsString(new ApiErrorResponse(ApiError.OPERATION_TIMEOUT, null, ""));
+            timeoutJson = this.objectMapper.writeValueAsString(new ApiErrorResponse(ApiError.OPERATION_TIMEOUT, null, ""));
         }
         return timeoutJson;
     }
@@ -101,7 +100,8 @@ public class TradingApiController extends AbstractApiController {
     @ResponseBody
     @GetMapping(value = "/orders", produces = "application/json")
     public String getOpenOrders() throws IOException {
-        return tradingEngineApiProxyService.get("/internal/" + UserContext.getRequiredUserId() + "/orders");
+        final Long userId = UserContext.getRequiredUserId();
+        return tradingEngineApiProxyService.get("/internal/" + userId + "/orders");
     }
 
     @ResponseBody
@@ -170,8 +170,7 @@ public class TradingApiController extends AbstractApiController {
     }
 
     @GetMapping("/history/orders")
-    public List<OrderEntity> getHistoryOrders(
-            @RequestParam(value = "maxResults", defaultValue = "100") int maxResults) {
+    public List<OrderEntity> getHistoryOrders(@RequestParam(value = "maxResults", defaultValue = "100") int maxResults) {
         if (maxResults < 1 || maxResults > 1000) {
             throw new ApiException(ApiError.PARAMETER_INVALID, "maxResults", "Invalid parameter.");
         }
@@ -231,8 +230,7 @@ public class TradingApiController extends AbstractApiController {
      */
     @PostMapping(value = "/orders", produces = "application/json")
     @ResponseBody
-    public DeferredResult<ResponseEntity<String>> createOrder(@RequestBody OrderRequestBean orderRequest)
-            throws IOException {
+    public DeferredResult<ResponseEntity<String>> createOrder(@RequestBody OrderRequestBean orderRequest) throws IOException {
         final Long userId = UserContext.getRequiredUserId();
         orderRequest.validate();
         final String refId = IdUtil.generateUniqueId();
@@ -270,8 +268,7 @@ public class TradingApiController extends AbstractApiController {
                         ResponseEntity<String> resp = new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
                         deferred.setResult(resp);
                     } else {
-                        ResponseEntity<String> resp = new ResponseEntity<>(JsonUtil.writeJson(message.result),
-                                HttpStatus.OK);
+                        ResponseEntity<String> resp = new ResponseEntity<>(JsonUtil.writeJson(message.result), HttpStatus.OK);
                         deferred.setResult(resp);
                     }
                 }

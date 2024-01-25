@@ -1,13 +1,15 @@
 package com.itranswarp.exchange.redis;
 
 public interface RedisCache {
-
+    /**
+     * pub-sub的主题
+     * 交易结果、orderBook通知
+     */
     public interface Topic {
-
+        // API监听此主题，然后将结果返回给客户端
         String TRADING_API_RESULT = "trading_api_result";
-
+        // 通知主题，有 order_match, orderbook 两个通知发布， 在PUSH服务处监听，给客户端推送
         String NOTIFICATION = "notification";
-
     }
 
     public interface Key {
