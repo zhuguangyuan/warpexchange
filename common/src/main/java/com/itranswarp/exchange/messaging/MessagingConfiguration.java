@@ -31,6 +31,15 @@ public class MessagingConfiguration {
 
     Map<String, Object> producerConfigs(String bootstrapServers) {
         Map<String, Object> configs = new HashMap<>();
+        /*
+         * 发送成功保证
+         * acks=all, retries = 3
+         *
+         * 发送成功且保证幂等且有序
+         * enable.idempotence=true
+         * // 无需设置 acks, 和 max.in.flight.requests.per.connection, kafka会自动设置
+         * // 原理：kafka client保证，无需业务方重复发送，否则才会造成重复
+         */
         configs.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         configs.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         configs.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
@@ -39,7 +48,9 @@ public class MessagingConfiguration {
 
     Map<String, Object> consumerConfigs(String bootstrapServers, int batchSize) {
         Map<String, Object> configs = new HashMap<>();
+        // 默认情况下，消费者一次会poll条消息
         configs.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, Integer.valueOf(batchSize));
+        //不管指定何值，如果已有消费记录offset,则从offset开始。否则从最新的开始(latest)消费, 或者从头开始(earliest)消费
         configs.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
         configs.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         configs.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
@@ -86,4 +97,9 @@ public class MessagingConfiguration {
         factory.setBatchListener(Boolean.TRUE);
         return factory;
     }
+
+    /**
+     * List<ConsumerRecord<?,?>>records
+     *
+     */
 }

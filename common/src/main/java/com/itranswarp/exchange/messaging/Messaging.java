@@ -1,5 +1,8 @@
 package com.itranswarp.exchange.messaging;
 
+/**
+ * 主题及分区数
+ */
 public interface Messaging {
 
     enum Topic {

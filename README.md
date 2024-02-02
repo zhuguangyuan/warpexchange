@@ -6,6 +6,9 @@ A simple, super fast, 7x24 exchange.
 
 - Java 17 + SpringBoot 3.x + Spring 6.x + Maven.
 - 100% in-memory trading.
+- Kafka for message transfer
+- Redis for message cache
+- MySQL for data persistence
 
 ### Screenshot
 ![dd](./screenshot.png)

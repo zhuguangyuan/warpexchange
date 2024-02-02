@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
+
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -37,13 +38,11 @@ public class MessagingFactory extends LoggerSupport {
     private MessageTypes messageTypes;
 
     @Autowired
+    private KafkaAdmin kafkaAdmin;
+    @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
-
     @Autowired
     private ConcurrentKafkaListenerContainerFactory<String, String> listenerContainerFactory;
-
-    @Autowired
-    private KafkaAdmin kafkaAdmin;
 
     @PostConstruct
     public void init() throws InterruptedException, ExecutionException {
@@ -68,27 +67,31 @@ public class MessagingFactory extends LoggerSupport {
         logger.info("init MessagingFactory ok.");
     }
 
+    /**
+     * 创建生产者用于发送消息
+     */
     public <T extends AbstractMessage> MessageProducer<T> createMessageProducer(Messaging.Topic topic,
-            Class<T> messageClass) {
+                                                                                Class<T> messageClass) {
         logger.info("try create message producer for topic {}...", topic);
         final String name = topic.name();
-        return new MessageProducer<>() {
-            @Override
-            public void sendMessage(AbstractMessage message) {
-                kafkaTemplate.send(name, messageTypes.serialize(message));
-            }
-        };
+        return message -> kafkaTemplate.send(name, messageTypes.serialize(message));
     }
 
+    /**
+     * 创建消费者用于消费消息
+     */
     public <T extends AbstractMessage> MessageConsumer createBatchMessageListener(Messaging.Topic topic, String groupId,
-            BatchMessageHandler<T> messageHandler) {
+                                                                                  BatchMessageHandler<T> messageHandler) {
         return createBatchMessageListener(topic, groupId, messageHandler, null);
     }
 
+    /**
+     * 创建消费者用于消费消息，带异常处理
+     */
     public <T extends AbstractMessage> MessageConsumer createBatchMessageListener(Messaging.Topic topic, String groupId,
-            BatchMessageHandler<T> messageHandler, CommonErrorHandler errorHandler) {
+                                                                                  BatchMessageHandler<T> messageHandler, CommonErrorHandler errorHandler) {
         logger.info("try create batch message listener for topic {}: group id = {}...", topic, groupId);
-        ConcurrentMessageListenerContainer<String, String> listenerContainer = listenerContainerFactory
+        ConcurrentMessageListenerContainer<String, String> container = listenerContainerFactory
                 .createListenerContainer(new KafkaListenerEndpointAdapter() {
                     @Override
                     public String getGroupId() {
@@ -100,23 +103,21 @@ public class MessagingFactory extends LoggerSupport {
                         return List.of(topic.name());
                     }
                 });
-        listenerContainer.setupMessageListener(new BatchMessageListener<String, String>() {
-            @Override
-            @SuppressWarnings("unchecked")
-            public void onMessage(List<ConsumerRecord<String, String>> data) {
-                List<T> messages = new ArrayList<>(data.size());
-                for (ConsumerRecord<String, String> record : data) {
-                    AbstractMessage message = messageTypes.deserialize(record.value());
-                    messages.add((T) message);
-                }
-                messageHandler.processMessages(messages);
+        BatchMessageListener<String, String> listener = data -> {
+            List<T> messages = new ArrayList<>(data.size());
+            for (ConsumerRecord<String, String> record : data) {
+                AbstractMessage message = messageTypes.deserialize(record.value());
+                messages.add((T) message);
             }
-        });
+            messageHandler.processMessages(messages);
+        };
+        container.setupMessageListener(listener);
+
         if (errorHandler != null) {
-            listenerContainer.setCommonErrorHandler(errorHandler);
+            container.setCommonErrorHandler(errorHandler);
         }
-        listenerContainer.start();
-        return listenerContainer::stop;
+        container.start();
+        return container::stop;
     }
 }
 

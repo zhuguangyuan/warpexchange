@@ -24,6 +24,7 @@ import com.itranswarp.exchange.util.JsonUtil;
 
 /**
  * Holds message types.
+ * 序列化
  */
 @Component
 public class MessageTypes {
