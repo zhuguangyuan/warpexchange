@@ -10,6 +10,11 @@ A simple, super fast, 7x24 exchange.
 - Redis for message cache
 - MySQL for data persistence
 
+### notes
+- no register center
+- no rpc
+- has config server
+
 ### Screenshot
 ![dd](./screenshot.png)
 ![dd](./structure.png)
