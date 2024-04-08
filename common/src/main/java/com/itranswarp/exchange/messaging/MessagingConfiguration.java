@@ -93,7 +93,19 @@ public class MessagingConfiguration {
         logger.info("init concurrent kafka listener container factory...");
         ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
+        /*
+         * 由于 setConcurrency 被设置为 1，在这种情况下，processMessages 方法将由单个线程处理。这个线程将负责从 Kafka 队列中拉取消息，
+         * 并逐批地将它们传递给 processMessages 方法进行处理。
+         *
+         * 如果您希望增加并发处理能力，可以通过增加 setConcurrency 方法的值来实现。例如，如果您设置 setConcurrency(10)，
+         * 那么将有 10 个线程并发地从 Kafka 队列中消费消息，并处理传入的批次。
+         *
+         * 请注意，增加并发性可能会提高消息处理的吞吐量，但也可能会增加系统复杂性，并可能需要更多的资源来管理这些并发线程。
+         * 因此，在调整并发级别时，需要根据系统的具体需求和资源情况进行权衡。同时，确保 processMessages 方法是线程安全的，
+         * 以便在多线程环境下正确地处理消息。
+         */
         factory.setConcurrency(Integer.valueOf(1));
+
         factory.setBatchListener(Boolean.TRUE);
         return factory;
     }
