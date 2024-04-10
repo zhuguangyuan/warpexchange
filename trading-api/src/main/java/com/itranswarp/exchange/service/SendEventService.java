@@ -10,6 +10,10 @@ import com.itranswarp.exchange.messaging.MessageProducer;
 import com.itranswarp.exchange.messaging.Messaging;
 import com.itranswarp.exchange.messaging.MessagingFactory;
 
+/**
+ * API 的消息发送服务
+ * 主要用于 将下单、撤单、转账消息 发送到定序服务器，完成消息的定序
+ */
 @Component
 public class SendEventService {
 

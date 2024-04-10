@@ -133,7 +133,7 @@ public class TradingEngineServiceTest {
         event.toUserId = userId;
         event.amount = amount;
         event.asset = asset;
-        event.sufficient = false;
+        event.checkBalance = false;
         return event;
     }
 

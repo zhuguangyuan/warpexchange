@@ -38,7 +38,7 @@ public class TradingInternalApiController extends AbstractApiController {
         message.toUserId = transferRequest.toUserId;
         message.asset = transferRequest.asset;
         message.amount = transferRequest.amount;
-        message.sufficient = transferRequest.fromUserId.longValue() != UserType.DEBT.getInternalUserId();
+        message.checkBalance = transferRequest.fromUserId.longValue() != UserType.DEBT.getInternalUserId();
         this.sendEventService.sendMessage(message);
         logger.info("transfer event sent: {}", message);
         return Map.of("result", Boolean.TRUE);

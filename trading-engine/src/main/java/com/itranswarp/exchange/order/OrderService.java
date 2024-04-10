@@ -72,7 +72,7 @@ public class OrderService {
         return this.activeOrders;
     }
 
-    public OrderEntity getOrder(Long orderId) {
+    public OrderEntity getActivateOrder(Long orderId) {
         return this.activeOrders.get(orderId);
     }
 

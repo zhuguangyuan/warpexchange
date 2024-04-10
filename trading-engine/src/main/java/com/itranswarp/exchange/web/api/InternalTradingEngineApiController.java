@@ -52,7 +52,7 @@ public class InternalTradingEngineApiController extends LoggerSupport {
 
     @GetMapping("/{userId}/orders/{orderId}")
     public OrderEntity getOrders(@PathVariable("userId") Long userId, @PathVariable("orderId") Long orderId) {
-        OrderEntity order = orderService.getOrder(orderId);
+        OrderEntity order = orderService.getActivateOrder(orderId);
         if (order == null || order.userId.longValue() != userId.longValue()) {
             return null;
         }

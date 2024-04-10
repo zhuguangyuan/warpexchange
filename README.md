@@ -37,6 +37,8 @@ A simple, super fast, 7x24 exchange.
 - 行情和推送系统
   - tick形成bar
   - 基于Netty/Vertx的推送系统
+- orderBook上的orderEntity用于撮合
+- orderService中的activateOrders用于清结算
 
 ### 定序系统
 - 对于上游发来的消息，做去重、落库、生成sequenceId + previousId 处理，然后发给下游

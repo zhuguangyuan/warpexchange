@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentMap;
 @Component
 public class AssetService extends LoggerSupport {
 
-    // UserId -> Map(AssetEnum -> Assets[available/frozen])
+    /** UserId -> Map(AssetEnum -> Assets[available/frozen]) */
     final ConcurrentMap<Long, ConcurrentMap<AssetEnum, Asset>> userAssets = new ConcurrentHashMap<>();
 
     public Asset getAsset(Long userId, AssetEnum assetId) {

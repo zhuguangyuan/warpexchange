@@ -102,6 +102,7 @@ public class MatchEngine {
         if (!book.remove(order)) {
             throw new IllegalArgumentException("Order not found in order book.");
         }
+
         OrderStatus status = order.unfilledQuantity.compareTo(order.quantity) == 0 ? OrderStatus.FULLY_CANCELLED
                 : OrderStatus.PARTIAL_CANCELLED;
         order.updateOrder(order.unfilledQuantity, status, ts);

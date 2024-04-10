@@ -13,12 +13,12 @@ public class TransferEvent extends AbstractEvent {
     public Long toUserId;
     public AssetEnum asset;
     public BigDecimal amount;
-    public boolean sufficient;
+    public boolean checkBalance;
 
     @Override
     public String toString() {
         return "TransferEvent [sequenceId=" + sequenceId + ", previousId=" + previousId + ", uniqueId=" + uniqueId
                 + ", refId=" + refId + ", createdAt=" + createdAt + ", fromUserId=" + fromUserId + ", toUserId="
-                + toUserId + ", asset=" + asset + ", amount=" + amount + ", sufficient=" + sufficient + "]";
+                + toUserId + ", asset=" + asset + ", amount=" + amount + ", checkBalance=" + checkBalance + "]";
     }
 }

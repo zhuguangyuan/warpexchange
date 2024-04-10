@@ -1,0 +1,14 @@
+{
+  "name": "trading-sequencer",
+  "version": "1.0.0",
+  "description": "通过messageFactory创建消息消费者和生产者，将上游发来的下单撤单和转账请求进行定序，存储，然后发往下游",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhuguangyuan/warpexchange.git"
+  },
+  "private": true
+}

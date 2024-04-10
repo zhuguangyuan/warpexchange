@@ -115,7 +115,6 @@ public class TradingEngineService extends LoggerSupport {
     private Thread tickThread;
     private Thread notifyThread;
 
-
     private OrderBookBean latestOrderBook = null;
     // 订单队列和撮合明细队列，用于将成交明细落库过程异步化
     private final Queue<List<OrderEntity>> closedOrderQueue = new ConcurrentLinkedQueue<>();
@@ -128,18 +127,21 @@ public class TradingEngineService extends LoggerSupport {
     @PostConstruct
     public void init() {
         this.shaUpdateOrderBookLua = this.redisService.loadScriptFromClassPath("/redis/update-orderbook.lua");
+
         this.consumer = this.messagingFactory.createBatchMessageListener(Messaging.Topic.TRADE, IpUtil.getHostId(),
                 this::processMessages);
         this.producer = this.messagingFactory.createMessageProducer(Topic.TICK, TickMessage.class);
-        this.tickThread = new Thread(this::runTickThread, "async-tick");
-        this.tickThread.start();
-        this.notifyThread = new Thread(this::runNotifyThread, "async-notify");
-        this.notifyThread.start();
+
         this.apiResultThread = new Thread(this::runApiResultThread, "async-api-result");
         this.apiResultThread.start();
-        // orderBook 推送线程、订单明细持久化线程
+
+        this.notifyThread = new Thread(this::runNotifyThread, "async-notify");
+        this.notifyThread.start();
+
         this.orderBookThread = new Thread(this::runOrderBookThread, "async-orderbook");
         this.orderBookThread.start();
+        this.tickThread = new Thread(this::runTickThread, "async-tick");
+        this.tickThread.start();
 
         this.dbThread = new Thread(this::runDbThread, "async-db");
         this.dbThread.start();
@@ -354,13 +356,14 @@ public class TradingEngineService extends LoggerSupport {
         if (logger.isDebugEnabled()) {
             logger.debug("process event {} -> {}: {}...", this.lastSequenceId, event.sequenceId, event);
         }
+
         try {
-            if (event instanceof OrderRequestEvent) {
-                createOrder((OrderRequestEvent) event);
-            } else if (event instanceof OrderCancelEvent) {
-                cancelOrder((OrderCancelEvent) event);
-            } else if (event instanceof TransferEvent) {
-                transfer((TransferEvent) event);
+            if (event instanceof OrderRequestEvent orderPlaceReq) {
+                createOrder(orderPlaceReq);
+            } else if (event instanceof OrderCancelEvent orderCancelReq) {
+                cancelOrder(orderCancelReq);
+            } else if (event instanceof TransferEvent transferReq) {
+                transfer(transferReq);
             } else {
                 logger.error("unable to process event type: {}", event.getClass().getName());
                 panic();
@@ -389,7 +392,7 @@ public class TradingEngineService extends LoggerSupport {
 
     boolean transfer(TransferEvent event) {
         boolean ok = this.assetService.tryTransfer(TransferType.AVAILABLE_TO_AVAILABLE, event.fromUserId, event.toUserId,
-                event.asset, event.amount, event.sufficient);
+                event.asset, event.amount, event.checkBalance);
         return ok;
     }
 
@@ -399,7 +402,9 @@ public class TradingEngineService extends LoggerSupport {
         int month = zdt.getMonth().getValue();
 
         long orderId = event.sequenceId * 10000 + (year * 100 + month);
-        OrderEntity order = this.orderService.createOrder(event.sequenceId, event.createdAt, orderId, event.userId,
+        // 注意这个过程是没有持久化的
+        OrderEntity order = this.orderService.createOrder(
+                event.sequenceId, event.createdAt, orderId, event.userId,
                 event.direction, event.price, event.quantity);
         if (order == null) {
             logger.warn("create order failed.");
@@ -408,40 +413,46 @@ public class TradingEngineService extends LoggerSupport {
             return;
         }
 
-        // 撮合、清算
-        // todo 下单直接走，如果没有成交，也走清结算，这一步可以优化
-        // todo 且走完清结算之后，才给前端返回结果，而不是订单创建成功就返回，这个可能拖累程序
         MatchResult result = this.matchEngine.processOrder(event.sequenceId, order);
-        this.clearingService.clearMatchResult(result);
-
-        // 通知orderBook更新线程，获取新的orderBook，存到Redis
-        this.orderBookChanged = true;
+        this.clearingService.clearMatchResult(result); // 完成转账和活跃中订单的移除
+        this.orderBookChanged = true; // 通知orderBook更新线程，获取新的orderBook，存到Redis
 
         // 推送成功结果,注意必须复制一份OrderEntity,因为将异步序列化:
         this.apiResultQueue.add(ApiResultMessage.orderSuccess(event.refId, order.copy(), event.createdAt));
 
-        // 已经成交的订单入队，异步持久化:
+        // 成交导致的订单结束和成交订单通知
+        List<NotificationMessage> notifications = new ArrayList<>();
         List<OrderEntity> closedOrders = new ArrayList<>();
+        notifications.add(createNotification(event.createdAt, "order_matched", order.userId, order.copy()));
         if (result.takerOrder.status.isFinalStatus) {
             closedOrders.add(result.takerOrder);
         }
-        // 成交信息入队，并做MQ推送
-        List<NotificationMessage> notifications = new ArrayList<>();
-        notifications.add(createNotification(event.createdAt, "order_matched", order.userId, order.copy()));
-
-        // 收集已完成的OrderEntity并生成MatchDetailEntity, TickEntity:
-        if (!result.matchDetails.isEmpty()) {
-            for (MatchDetailRecord detail : result.matchDetails) {
-                this.handleOrders(event, detail, notifications, closedOrders);
-                this.handleFilledDetails(event, detail);
-                this.handleTicks(event, detail);
+        for (MatchDetailRecord detail : result.matchDetails) {
+            OrderEntity maker = detail.makerOrder();
+            notifications.add(createNotification(event.createdAt, "order_matched", maker.userId, maker.copy()));
+            if (maker.status.isFinalStatus) {
+                closedOrders.add(maker);
             }
         }
-
-        // 异步写入数据库:
-        this.closedOrderQueue.add(closedOrders);
-        // 异步通知OrderMatch:
         this.matchResultNotificationQueue.addAll(notifications);
+        this.closedOrderQueue.add(closedOrders);
+
+        // 成交明细和成交tick
+        for (MatchDetailRecord detail : result.matchDetails) {
+            this.handleFilledDetails(event, detail);
+            this.handleTicks(event, detail);
+        }
+    }
+
+    private void handleFilledDetails(OrderRequestEvent event, MatchDetailRecord detail) {
+        List<MatchDetailEntity> matchDetails = new ArrayList<>();
+        MatchDetailEntity takerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
+                true);
+        MatchDetailEntity makerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
+                false);
+        matchDetails.add(takerDetail);
+        matchDetails.add(makerDetail);
+        this.matchDetailQueue.add(matchDetails);
     }
 
     private void handleTicks(OrderRequestEvent event, MatchDetailRecord detail) {
@@ -463,27 +474,6 @@ public class TradingEngineService extends LoggerSupport {
         msg.createdAt = event.createdAt;
         msg.ticks = ticks;
         this.tickQueue.add(msg);
-    }
-
-    private void handleFilledDetails(OrderRequestEvent event, MatchDetailRecord detail) {
-        // 成交明细
-        List<MatchDetailEntity> matchDetails = new ArrayList<>();
-        MatchDetailEntity takerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
-                true);
-        MatchDetailEntity makerDetail = generateMatchDetailEntity(event.sequenceId, event.createdAt, detail,
-                false);
-        matchDetails.add(takerDetail);
-        matchDetails.add(makerDetail);
-        this.matchDetailQueue.add(matchDetails);
-    }
-
-    private void handleOrders(OrderRequestEvent event, MatchDetailRecord detail, List<NotificationMessage> notifications, List<OrderEntity> closedOrders) {
-        // 订单成交
-        OrderEntity maker = detail.makerOrder();
-        notifications.add(createNotification(event.createdAt, "order_matched", maker.userId, maker.copy()));
-        if (maker.status.isFinalStatus) {
-            closedOrders.add(maker);
-        }
     }
 
     private NotificationMessage createNotification(long ts, String type, Long userId, Object data) {
@@ -512,19 +502,23 @@ public class TradingEngineService extends LoggerSupport {
     }
 
     void cancelOrder(OrderCancelEvent event) {
-        OrderEntity order = this.orderService.getOrder(event.refOrderId);
+        OrderEntity order = this.orderService.getActivateOrder(event.refOrderId);
         // 未找到活动订单或订单不属于该用户:
         if (order == null || order.userId.longValue() != event.userId.longValue()) {
             // 发送失败消息:
             this.apiResultQueue.add(ApiResultMessage.cancelOrderFailed(event.refId, event.createdAt));
             return;
         }
-        this.matchEngine.cancel(event.createdAt, order);
-        this.clearingService.clearCancelOrder(order);
-        this.orderBookChanged = true;
+
+        this.matchEngine.cancel(event.createdAt, order); // 从orderBook中撤下订单，更新订单状态为部分撤销还是全部撤销
+        this.clearingService.clearCancelOrder(order); // 主要是解冻资产
+        this.orderBookChanged = true; // 撤单后 orderBook肯定是发生变化的
+
         // 发送成功消息:
         this.apiResultQueue.add(ApiResultMessage.orderSuccess(event.refId, order, event.createdAt));
         this.matchResultNotificationQueue.add(createNotification(event.createdAt, "order_canceled", order.userId, order));
+        // todo 没有将此closedOrder 进行持久化？
+        // todo 会导致订单取消后，在数据库中查询不到
     }
 
     public void debug() {
