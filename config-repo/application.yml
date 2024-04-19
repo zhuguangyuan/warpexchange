@@ -5,7 +5,17 @@ server:
     # default tomcat settings:
     use-forward-headers: ${TOMCAT_USE_FORWARD_HEADERS:true}
     protocol-header: ${TOMCAT_PROTOCOL_HEADER:x-forwarded-proto}
-
+    accept-count: 100
+    max-connections: 8192
+    threads:
+      min-spare: 10
+      max: 200
+#  undertow:
+#    direct-buffers: true
+#    buffer-size: 1024
+#    threads:
+#      io: 8
+#      worker: 128
 exchange:
   config:
     order-book-depth: ${ORDER_BOOK_DEPTH:50}

@@ -42,6 +42,7 @@ class ApiClient(object):
         headers = {
             'Authorization': self._auth
         }
+        print("headers", headers)
         if data:
             data = data.encode('utf-8')
             headers['Content-Type'] = 'application/json'

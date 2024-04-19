@@ -18,6 +18,12 @@ import com.itranswarp.exchange.model.trade.OrderEntity;
 import com.itranswarp.exchange.order.OrderService;
 import com.itranswarp.exchange.support.LoggerSupport;
 
+/**
+ * 获取活跃状态的订单
+ * 获取用户资产等
+ *
+ * 下单、取消，没有直接API，而是通过定序服务传过来(API服务接收订单后传到消息队列)
+ */
 @RestController
 @RequestMapping("/internal")
 public class InternalTradingEngineApiController extends LoggerSupport {

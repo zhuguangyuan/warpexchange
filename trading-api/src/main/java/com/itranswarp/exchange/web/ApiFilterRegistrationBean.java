@@ -80,7 +80,9 @@ public class ApiFilterRegistrationBean extends FilterRegistrationBean<Filter> {
 
         Long parseUser(HttpServletRequest request) {
             // 尝试通过Authorization Header认证用户:
+            logger.warn("request:{}", request);
             String auth = request.getHeader("Authorization");
+            logger.warn("auth:{}, headers:{}", auth, request.getHeaderNames());
             if (auth != null) {
                 return parseUserFromAuthorization(auth);
             }

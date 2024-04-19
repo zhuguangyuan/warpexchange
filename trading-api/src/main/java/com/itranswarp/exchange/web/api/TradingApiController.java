@@ -201,6 +201,7 @@ public class TradingApiController extends AbstractApiController {
     @PostMapping(value = "/orders/{orderId}/cancel", produces = "application/json")
     @ResponseBody
     public DeferredResult<ResponseEntity<String>> cancelOrder(@PathVariable("orderId") Long orderId) throws Exception {
+        logger.warn("准备取消订单{}", orderId);
         final Long userId = UserContext.getRequiredUserId();
         String orderStr = tradingEngineApiProxyService.get("/internal/" + userId + "/orders/" + orderId);
         if (orderStr.equals("null")) {

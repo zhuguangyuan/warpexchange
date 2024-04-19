@@ -25,6 +25,8 @@ A simple, super fast, 7x24 exchange.
 [从零开始搭建一个7x24小时运行的证券交易所](https://www.liaoxuefeng.com/wiki/1252599548343744/1266263401691296)
 
 ### 交易系统逻辑概要
+- 接收来自定序系统的下单、撤单、转账请求
+- 对外提供用户资产查询、用户活跃订单查询服务
 - 撮合和清结算系统
   - 接收订单，去对端orderBook吃单，吃不完则放在己方的orderBook
     - 吃单会导致orderBook变化

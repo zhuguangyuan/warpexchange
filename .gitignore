@@ -333,3 +333,4 @@ typings/
 !maven-wrapper.jar
 
 !.editorconfig
+build/virEnv
