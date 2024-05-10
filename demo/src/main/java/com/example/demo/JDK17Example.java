@@ -1,13 +1,14 @@
-package com.itranswarp.exchange.ui;
+package com.example.demo;
 
 public class JDK17Example {
     public static void main(String[] args) {
-        switchCase();
-        stringBlock();
-        instanceOfCase();
-        sealedClassCase();
-        recordCase();
-        nullInfoCase();
+//        switchCase();
+//        stringBlock();
+//        instanceOfCase();
+//        sealedClassCase();
+//        recordCase();
+//        nullInfoCase();
+        System.out.println(new JDK17Example().qqId());
     }
 
     private static void switchCase() {

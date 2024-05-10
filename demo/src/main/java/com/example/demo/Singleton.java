@@ -1,4 +1,4 @@
-package pattern;
+package com.example.demo;
 
 public class Singleton {
     private static final Singleton singleton = new Singleton();
