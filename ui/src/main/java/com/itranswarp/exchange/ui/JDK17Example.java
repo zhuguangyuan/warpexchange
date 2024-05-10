@@ -8,7 +8,6 @@ public class JDK17Example {
         sealedClassCase();
         recordCase();
         nullInfoCase();
-
     }
 
     private static void switchCase() {
@@ -96,6 +95,10 @@ public class JDK17Example {
     private static void nullInfoCase() {
         Son son = new Son();
         System.out.println("null exp:" + son.getUserRecord().name());;
+    }
+
+    long qqId() {
+        return 10L;
     }
 
 }
